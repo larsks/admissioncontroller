@@ -23,21 +23,35 @@ func main() {
 	flag.Parse()
 
 	server := http.NewServer(port)
+	quitChan := make(chan struct{})
 	go func() {
 		if err := server.ListenAndServeTLS(tlscert, tlskey); err != nil {
 			log.Errorf("Failed to listen and serve: %v", err)
 		}
+		close(quitChan)
 	}()
 
 	log.Infof("Server running in port: %s", port)
 
 	// listen shutdown signal
 	signalChan := make(chan os.Signal, 1)
-	signal.Notify(signalChan, syscall.SIGINT, syscall.SIGTERM)
-	<-signalChan
+	signal.Notify(signalChan, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
+
+	exitCode := 0
+	for {
+		select {
+		case <-signalChan:
+		case <-quitChan:
+		}
+		exitCode = 1
+		break
+	}
 
 	log.Infof("Shutdown gracefully...")
 	if err := server.Shutdown(context.Background()); err != nil {
-		log.Error(err)
+		log.Errorf("Failed to shutdown: %v", err)
+		exitCode = 1
 	}
+
+	os.Exit(exitCode)
 }
